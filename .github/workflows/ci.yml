@@ -1,0 +1,92 @@
+name: CI and delivery
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  verify:
+    name: Build, test and smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - run: dotnet restore CiCdSample.slnx --locked-mode
+      - run: dotnet build CiCdSample.slnx -c Release --no-restore
+      - run: dotnet test CiCdSample.slnx -c Release --no-build --logger trx --results-directory TestResults
+      - name: Upload test evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: TestResults/**/*.trx
+          if-no-files-found: warn
+      - name: Build candidate image
+        run: docker build --build-arg APP_VERSION=${{ github.sha }} -t taskapi:ci .
+      - name: Smoke candidate image
+        shell: pwsh
+        run: |
+          docker run -d --name taskapi-ci -p 127.0.0.1:8080:8080 taskapi:ci
+          if ($LASTEXITCODE -ne 0) { throw 'Container failed to start' }
+          ./scripts/smoke.ps1 -ExpectedVersion '${{ github.sha }}'
+      - name: Container logs
+        if: always()
+        run: docker logs taskapi-ci || true
+      - name: Export tested image
+        if: github.event_name == 'push'
+        run: docker save taskapi:ci | gzip > candidate.tar.gz
+      - name: Upload tested image
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@v4
+        with:
+          name: candidate-image
+          path: candidate.tar.gz
+          retention-days: 1
+  publish:
+    name: Publish tested image
+    needs: verify
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.push.outputs.image_ref }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: candidate-image
+      - name: Login to GHCR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: echo "$GH_TOKEN" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin
+      - name: Push exact tested image
+        id: push
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${REPOSITORY,,}"
+          gzip -dc candidate.tar.gz | docker load
+          docker tag taskapi:ci "$image:${GITHUB_SHA}"
+          docker push "$image:${GITHUB_SHA}"
+          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:${GITHUB_SHA}")
+          echo "image_ref=$digest" >> "$GITHUB_OUTPUT"
+          echo "Published: \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+  deploy:
+    needs: publish
+    if: vars.ENABLE_STAGING == 'true'
+    uses: ./.github/workflows/deploy.yml
+    with:
+      image_ref: ${{ needs.publish.outputs.image_ref }}
+      expected_version: ${{ github.sha }}
+    secrets: inherit

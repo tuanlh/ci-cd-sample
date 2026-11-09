@@ -1,0 +1,28 @@
+@baseUrl = http://localhost:8080
+
+GET {{baseUrl}}/health
+
+###
+GET {{baseUrl}}/version
+
+###
+GET {{baseUrl}}/tasks
+
+### Create a task; copy its id into the requests below
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{"title":"Learn CI/CD"}
+
+### Replace this id with the real response id
+@taskId = 00000000-0000-0000-0000-000000000000
+GET {{baseUrl}}/tasks/{{taskId}}
+
+###
+PUT {{baseUrl}}/tasks/{{taskId}}/complete
+
+### Expected: HTTP 400
+POST {{baseUrl}}/tasks
+Content-Type: application/json
+
+{"title":" "}
