@@ -20,6 +20,7 @@ on:
         required: true
 permissions:
   contents: read
+  id-token: write
 concurrency:
   group: staging-deploy
   cancel-in-progress: false
@@ -31,29 +32,47 @@ jobs:
     environment: staging
     steps:
       - uses: actions/checkout@v4
-      - name: Configure SSH
+      - name: Authenticate to AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.STAGING_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.STAGING_AWS_REGION }}
+      - name: Deploy through Systems Manager
         env:
-          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-          KNOWN_HOSTS: ${{ secrets.STAGING_KNOWN_HOSTS }}
-        run: |
-          mkdir -p ~/.ssh
-          chmod 700 ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
-          printf '%s\n' "$KNOWN_HOSTS" > ~/.ssh/known_hosts
-          chmod 600 ~/.ssh/id_ed25519 ~/.ssh/known_hosts
-      - name: Upload and deploy
-        env:
-          HOST: ${{ secrets.STAGING_HOST }}
-          USER: ${{ secrets.STAGING_USER }}
+          INSTANCE_ID: ${{ vars.STAGING_INSTANCE_ID }}
           IMAGE_REF: ${{ inputs.image_ref }}
           EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: |
           set -euo pipefail
-          [[ "$IMAGE_REF" =~ ^ghcr\.io/[a-z0-9._/-]+@sha256:[a-f0-9]{64}$ ]] || exit 1
+          repository=${GITHUB_REPOSITORY,,}
+          prefix="ghcr.io/$repository@sha256:"
+          [[ "$IMAGE_REF" == "$prefix"* && "${IMAGE_REF#"$prefix"}" =~ ^[a-f0-9]{64}$ ]] || exit 1
           [[ "$EXPECTED_VERSION" =~ ^[a-f0-9]{40}$ ]] || exit 1
-          ssh -o BatchMode=yes "$USER@$HOST" 'mkdir -p ~/cicd-taskapi'
-          scp deploy/compose.yaml deploy/deploy.sh "$USER@$HOST:cicd-taskapi/"
-          ssh -o BatchMode=yes "$USER@$HOST" "cd ~/cicd-taskapi && IMAGE_REF='$IMAGE_REF' EXPECTED_VERSION='$EXPECTED_VERSION' bash deploy.sh"
-      - name: Remove SSH key
-        if: always()
-        run: rm -f ~/.ssh/id_ed25519
+          {
+            echo 'set -eu'
+            echo 'install -d -m 0755 /opt/cicd-taskapi'
+            for file in compose.yaml deploy.sh; do
+              printf "printf '%%s' '%s' | base64 -d > /opt/cicd-taskapi/%s\n" "$(base64 -w 0 "deploy/$file")" "$file"
+            done
+            printf "IMAGE_REF='%s' EXPECTED_VERSION='%s' bash /opt/cicd-taskapi/deploy.sh\n" "$IMAGE_REF" "$EXPECTED_VERSION"
+            echo 'curl -fsS http://127.0.0.1:8080/version'
+          } | jq -Rs '{commands: [.], executionTimeout: ["360"]}' > ssm-parameters.json
+          command_id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript --parameters file://ssm-parameters.json \
+            --comment "GitHub Actions staging run $GITHUB_RUN_ID" --query Command.CommandId --output text)
+          echo "SSM command: $command_id"
+          for attempt in {1..90}; do
+            if result=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --output json); then
+              case $(jq -r .Status <<< "$result") in
+                Pending|InProgress|Delayed|Cancelling) ;;
+                *)
+                  jq -r '.StandardOutputContent, .StandardErrorContent' <<< "$result"
+                  [[ $(jq -r .Status <<< "$result") == Success ]]
+                  exit
+                  ;;
+              esac
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for SSM command' >&2
+          exit 1

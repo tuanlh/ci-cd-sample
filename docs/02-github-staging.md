@@ -1,5 +1,9 @@
 # Từ local lên GitHub rồi đến staging
 
+Repo `tuanlh/ci-cd-sample` hiện deploy EC2 bằng **GitHub OIDC và AWS Systems Manager**. Dùng phần A để học CI/GHCR. Các phần SSH bên dưới mô tả cấu hình mẫu ban đầu. Với EC2 hiện tại, environment `staging` chỉ cho phép nhánh `main` và dùng ba biến `STAGING_AWS_ROLE_ARN`, `STAGING_AWS_REGION`, `STAGING_INSTANCE_ID`.
+
+Để chạy deploy hoặc rollback thủ công, chọn **Actions → Deploy staging or rollback → Run workflow** trên `main`, rồi nhập digest GHCR và commit SHA tương ứng. Job nhận quyền AWS tạm thời, gửi lệnh qua Systems Manager và in `/version` trong log. Trên máy chủ, Compose và script deploy nằm tại `/opt/cicd-taskapi`. Dùng Systems Manager để kiểm tra `curl -fsS http://127.0.0.1:8080/health` và `curl -fsS http://127.0.0.1:8080/version`. Repository variable `ENABLE_STAGING=true` bật deploy tự động sau publish trên `main`.
+
 ## A. Tạo repo và chạy CI/CD phần registry
 
 1. Tạo repository GitHub trống, ví dụ `ci-cd-sample`. Không tạo README trên GitHub vì local đã có. Repo public giúp làm lab thuận tiện hơn; repo private có thể chịu giới hạn phút Actions/storage theo tài khoản.
