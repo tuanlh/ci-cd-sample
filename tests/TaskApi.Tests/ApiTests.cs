@@ -29,12 +29,21 @@ public class ApiTests
     }
 
     [Fact]
-    public async Task Overlong_title_is_rejected()
+    public async Task Title_with_200_characters_is_accepted()
+    {
+        await using var factory = new WebApplicationFactory<Program>();
+        using var client = factory.CreateClient();
+        var response = await client.PostAsJsonAsync("/tasks", new { title = new string('x', 200) });
+        Assert.Equal(HttpStatusCode.Created, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Title_with_201_characters_is_rejected()
     {
         await using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient();
         Assert.Equal(HttpStatusCode.BadRequest,
-            (await client.PostAsJsonAsync("/tasks", new { title = new string('x', 121) })).StatusCode);
+            (await client.PostAsJsonAsync("/tasks", new { title = new string('x', 201) })).StatusCode);
     }
 
     [Fact]
