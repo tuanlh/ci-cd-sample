@@ -34,7 +34,7 @@ public class ApiTests
         await using var factory = new WebApplicationFactory<Program>();
         using var client = factory.CreateClient();
         Assert.Equal(HttpStatusCode.BadRequest,
-            (await client.PostAsJsonAsync("/tasks", new { title = new string('x', 201) })).StatusCode);
+            (await client.PostAsJsonAsync("/tasks", new { title = new string('x', 121) })).StatusCode);
     }
 
     [Fact]
