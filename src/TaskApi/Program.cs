@@ -19,8 +19,8 @@ app.MapPost("/tasks", (CreateTask request, TaskStore store) =>
             ["title"] = ["Title must contain 1–120 characters and cannot be blank."]
         });
     var task = store.Add(request.Title.Trim());
-    return Results.Created($"/tasks/{task.Id}", task);
-    //return Results.Ok(task);
+    //return Results.Created($"/tasks/{task.Id}", task);
+    return Results.Ok(task);
 });
 app.MapGet("/tasks/{id:guid}", (Guid id, TaskStore store) =>
     store.Find(id) is { } task ? Results.Ok(task) : Results.NotFound());
