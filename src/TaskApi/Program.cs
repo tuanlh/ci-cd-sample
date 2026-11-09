@@ -13,7 +13,7 @@ app.MapGet("/version", (IConfiguration config) => Results.Ok(new
 app.MapGet("/tasks", (TaskStore store) => Results.Ok(store.All()));
 app.MapPost("/tasks", (CreateTask request, TaskStore store) =>
 {
-    if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > 120)
+    if (string.IsNullOrWhiteSpace(request.Title) || request.Title.Length > 200)
         return Results.ValidationProblem(new Dictionary<string, string[]>
         {
             ["title"] = ["Title must contain 1–120 characters and cannot be blank."]
