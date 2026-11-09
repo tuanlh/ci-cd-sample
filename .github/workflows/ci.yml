@@ -79,9 +79,11 @@ jobs:
           gzip -dc candidate.tar.gz | docker load
           docker tag taskapi:ci "$image:${GITHUB_SHA}"
           docker push "$image:${GITHUB_SHA}"
-          digest=$(docker inspect --format '{{index .RepoDigests 0}}' "$image:${GITHUB_SHA}")
-          echo "image_ref=$digest" >> "$GITHUB_OUTPUT"
-          echo "Published: \`$digest\`" >> "$GITHUB_STEP_SUMMARY"
+          digest=$(docker buildx imagetools inspect "$image:${GITHUB_SHA}" --format '{{.Manifest.Digest}}')
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          image_ref="$image@$digest"
+          echo "image_ref=$image_ref" >> "$GITHUB_OUTPUT"
+          echo "Published: \`$image_ref\`" >> "$GITHUB_STEP_SUMMARY"
   deploy:
     needs: publish
     if: vars.ENABLE_STAGING == 'true'
