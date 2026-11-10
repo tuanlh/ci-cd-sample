@@ -41,16 +41,16 @@ jobs:
           [[ "$IMAGE_REF" == "$prefix"* && "${IMAGE_REF#"$prefix"}" =~ ^[a-f0-9]{64}$ ]] || exit 1
           [[ "$EXPECTED_VERSION" =~ ^[a-f0-9]{40}$ ]] || exit 1
           {
-  echo 'set -eu'
-  echo 'install -d -m 0755 /opt/cicd-taskapi-production'
-  printf "printf '%%s' '%s' | base64 -d > /opt/cicd-taskapi-production/compose.yaml\n" \
-    "$(base64 -w 0 deploy/compose.production.yaml)"
-  printf "printf '%%s' '%s' | base64 -d > /opt/cicd-taskapi-production/deploy.sh\n" \
-    "$(base64 -w 0 deploy/deploy.sh)"
-  printf "cd /opt/cicd-taskapi-production && COMPOSE_PROJECT=taskapi-production DEPLOY_PORT=8081 IMAGE_REF='%s' EXPECTED_VERSION='%s' bash ./deploy.sh\n" \
-    "$IMAGE_REF" "$EXPECTED_VERSION"
-  echo 'curl -fsS http://127.0.0.1:8081/version'
-} | jq -Rs '{commands: [.], executionTimeout: ["360"]}' > ssm-parameters.json
+            echo 'set -eu'
+            echo 'install -d -m 0755 /opt/cicd-taskapi-production'
+            printf "printf '%%s' '%s' | base64 -d > /opt/cicd-taskapi-production/compose.yaml\n" \
+              "$(base64 -w 0 deploy/compose.production.yaml)"
+            printf "printf '%%s' '%s' | base64 -d > /opt/cicd-taskapi-production/deploy.sh\n" \
+              "$(base64 -w 0 deploy/deploy.sh)"
+            printf "cd /opt/cicd-taskapi-production && COMPOSE_PROJECT=taskapi-production DEPLOY_PORT=8081 IMAGE_REF='%s' EXPECTED_VERSION='%s' bash ./deploy.sh\n" \
+              "$IMAGE_REF" "$EXPECTED_VERSION"
+            echo 'curl -fsS http://127.0.0.1:8081/version'
+          } | jq -Rs '{commands: [.], executionTimeout: ["360"]}' > ssm-parameters.json
           command_id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" \
             --document-name AWS-RunShellScript --parameters file://ssm-parameters.json \
             --comment "GitHub Actions production run $GITHUB_RUN_ID" --query Command.CommandId --output text)
