@@ -9,7 +9,11 @@ cd "$(dirname "$0")"
 exec 9>.deploy.lock
 flock -w 300 9
 export IMAGE_REF
-compose=(docker compose -p taskapi-staging -f compose.yaml)
+compose_project="${COMPOSE_PROJECT:-taskapi-staging}"
+deploy_port="${DEPLOY_PORT:-8080}"
+base_url="http://127.0.0.1:${deploy_port}"
+
+compose=(docker compose -p "$compose_project" -f compose.yaml)
 old_id=$("${compose[@]}" ps -q api)
 previous=''
 if [[ -n "$old_id" ]]; then previous=$(docker inspect --format '{{.Config.Image}}' "$old_id"); fi

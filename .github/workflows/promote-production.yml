@@ -1,0 +1,73 @@
+name: Promoto to production
+on:
+  
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: 'ghcr.io/owner/repo@sha256:... (copy from a successful publish)'
+        type: string
+        required: true
+      expected_version:
+        description: 'Full 40-character commit SHA built into that image'
+        type: string
+        required: true
+permissions:
+  contents: read
+  id-token: write
+concurrency:
+  group: production-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - name: Authenticate to AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.STAGING_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.STAGING_AWS_REGION }}
+      - name: Deploy through Systems Manager
+        env:
+          INSTANCE_ID: ${{ vars.STAGING_INSTANCE_ID }}
+          IMAGE_REF: ${{ inputs.image_ref }}
+          EXPECTED_VERSION: ${{ inputs.expected_version }}
+        run: |
+          set -euo pipefail
+          repository=${GITHUB_REPOSITORY,,}
+          prefix="ghcr.io/$repository@sha256:"
+          [[ "$IMAGE_REF" == "$prefix"* && "${IMAGE_REF#"$prefix"}" =~ ^[a-f0-9]{64}$ ]] || exit 1
+          [[ "$EXPECTED_VERSION" =~ ^[a-f0-9]{40}$ ]] || exit 1
+          {
+  echo 'set -eu'
+  echo 'install -d -m 0755 /opt/cicd-taskapi-production'
+  printf "printf '%%s' '%s' | base64 -d > /opt/cicd-taskapi-production/compose.yaml\n" \
+    "$(base64 -w 0 deploy/compose.production.yaml)"
+  printf "printf '%%s' '%s' | base64 -d > /opt/cicd-taskapi-production/deploy.sh\n" \
+    "$(base64 -w 0 deploy/deploy.sh)"
+  printf "cd /opt/cicd-taskapi-production && COMPOSE_PROJECT=taskapi-production DEPLOY_PORT=8081 IMAGE_REF='%s' EXPECTED_VERSION='%s' bash ./deploy.sh\n" \
+    "$IMAGE_REF" "$EXPECTED_VERSION"
+  echo 'curl -fsS http://127.0.0.1:8081/version'
+} | jq -Rs '{commands: [.], executionTimeout: ["360"]}' > ssm-parameters.json
+          command_id=$(aws ssm send-command --instance-ids "$INSTANCE_ID" \
+            --document-name AWS-RunShellScript --parameters file://ssm-parameters.json \
+            --comment "GitHub Actions production run $GITHUB_RUN_ID" --query Command.CommandId --output text)
+          echo "SSM command: $command_id"
+          for attempt in {1..90}; do
+            if result=$(aws ssm get-command-invocation --command-id "$command_id" --instance-id "$INSTANCE_ID" --output json); then
+              case $(jq -r .Status <<< "$result") in
+                Pending|InProgress|Delayed|Cancelling) ;;
+                *)
+                  jq -r '.StandardOutputContent, .StandardErrorContent' <<< "$result"
+                  [[ $(jq -r .Status <<< "$result") == Success ]]
+                  exit
+                  ;;
+              esac
+            fi
+            sleep 5
+          done
+          echo 'Timed out waiting for SSM command' >&2
+          exit 1
