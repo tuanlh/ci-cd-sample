@@ -27,11 +27,11 @@ jobs:
       - name: Authenticate to AWS via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ vars.STAGING_AWS_ROLE_ARN }}
-          aws-region: ${{ vars.STAGING_AWS_REGION }}
+          role-to-assume: ${{ vars.PRODUCTION_AWS_ROLE_ARN }}
+          aws-region: ${{ vars.PRODUCTION_AWS_REGION }}
       - name: Deploy through Systems Manager
         env:
-          INSTANCE_ID: ${{ vars.STAGING_INSTANCE_ID }}
+          INSTANCE_ID: ${{ vars.PRODUCTION_INSTANCE_ID }}
           IMAGE_REF: ${{ inputs.image_ref }}
           EXPECTED_VERSION: ${{ inputs.expected_version }}
         run: |
