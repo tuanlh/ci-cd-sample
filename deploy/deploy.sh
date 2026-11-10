@@ -37,8 +37,8 @@ trap rollback ERR
 "${compose[@]}" up -d --no-build api
 ready=false
 for attempt in {1..30}; do
-  if curl -fsS --max-time 3 http://127.0.0.1:8080/health | grep -Fq '"status":"healthy"'; then
-    if curl -fsS --max-time 3 http://127.0.0.1:8080/version | grep -Fq "\"version\":\"$EXPECTED_VERSION\""; then
+  if curl -fsS --max-time 3 "${base_url}/health" | grep -Fq '"status":"healthy"'; then
+    if curl -fsS --max-time 3 "${base_url}/version" | grep -Fq "\"version\":\"$EXPECTED_VERSION\""; then
       ready=true
       break
     fi
