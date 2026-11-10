@@ -1,6 +1,5 @@
 name: Promoto to production
 on:
-  
   workflow_dispatch:
     inputs:
       image_ref:
