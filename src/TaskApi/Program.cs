@@ -8,6 +8,7 @@ app.MapGet("/health", () => Results.Ok(new { status = "healthy" }));
 app.MapGet("/version", (IConfiguration config) => Results.Ok(new
 {
     version = config["APP_VERSION"] ?? "local",
+    release = "rollback-execise-b",
     environment = app.Environment.EnvironmentName
 }));
 app.MapGet("/tasks", (TaskStore store) => Results.Ok(store.All()));
